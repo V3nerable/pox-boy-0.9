@@ -56,7 +56,7 @@
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px;">
             <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
                 <span class="header-title" id="main-os-title">POX-BOY 3026</span>
-                <span style="font-size: 0.8rem; opacity: 0.5; flex-shrink: 0;">v0.96</span>
+                <span style="font-size: 0.8rem; opacity: 0.5; flex-shrink: 0;">v0.98</span>
                 <span style="opacity: 0.5;">|</span>
                 <span id="pip-clock" style="font-size: 0.9rem; opacity: 0.8; white-space: nowrap;"></span>
             </div>
@@ -123,7 +123,7 @@
                 </div>
                 
                 <!-- v0.84: RADIATION LEVEL row removed — already shown in HP/RADS bar + footer -->
-                <!-- v0.96: ACTION POINTS row removed — never implemented, dead code -->
+                <!-- v0.98: ACTION POINTS row removed — never implemented, dead code -->
             </div>
 
             <!-- SPECIAL (v0.84: merged with SKILLS + PERKS — one scrollable page) -->
@@ -246,7 +246,7 @@
                 </div>
             </div>
 
-            <!-- QUESTS (v0.96: unified quest system) -->
+            <!-- QUESTS (v0.98: unified quest system) -->
             <div id="sub-data-quests" class="sub-tab-content active">
                 <button class="theme-btn" onclick="openCreateQuestModal()" style="width:100%; border-style:dashed; margin-bottom:15px;">[+ CREATE QUEST]</button>
                 <div class="sub-nav" id="quest-sub-nav" style="flex-wrap: wrap; column-gap: 15px; row-gap: 6px; margin-bottom: 15px;">
@@ -511,6 +511,20 @@
             <div class="form-group"><label>LOCATION</label><input type="text" id="cq-loc" class="pip-input vk-target" readonly onclick="openVk('cq-loc')" placeholder="e.g. Old radio tower"></div>
             <div class="form-group"><label>EXPIRATION TIME (Optional)</label><input type="text" id="cq-time" class="pip-input vk-target" readonly onclick="openVk('cq-time')" placeholder="e.g. 18:00 (24h format)"></div>
             <button class="pip-btn" onclick="transmitQuest()">[ TRANSMIT QUEST ]</button>
+            <button class="pip-btn" onclick="closeModals()" style="margin-top: 15px; border-style: dashed;">CANCEL</button>
+        </div>
+    </div>
+
+    <!-- UNIFIED QUEST CREATION MODAL (v0.98) -->
+    <div id="create-quest-modal" class="modal-overlay" style="z-index: 125;">
+        <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
+            <h3 id="cq-modal-title">CREATE QUEST</h3>
+            <div class="form-group"><label>TITLE</label><input type="text" id="new-quest-title" class="pip-input vk-target" readonly onclick="openVk('new-quest-title')" maxlength="100" placeholder="Quest title..."></div>
+            <div class="form-group"><label>DESCRIPTION</label><textarea id="new-quest-desc" class="pip-input vk-target" readonly onclick="openVk('new-quest-desc')" maxlength="500" rows="3" placeholder="Quest details..."></textarea></div>
+            <div class="form-group"><label>REWARD (optional)</label><input type="text" id="new-quest-reward" class="pip-input vk-target" readonly onclick="openVk('new-quest-reward')" maxlength="100" placeholder="e.g., 50 caps, a drink..."></div>
+            <div class="form-group" id="quest-recipient-group" style="display:none;"><label>RECIPIENT</label><select id="new-quest-recipient" class="pip-input"></select></div>
+            <div class="form-group" id="quest-target-group" style="display:none;"><label>TARGET</label><select id="new-quest-target" class="pip-input"></select></div>
+            <button class="pip-btn" id="submit-quest-btn" onclick="submitQuestFromModal()">CREATE QUEST</button>
             <button class="pip-btn" onclick="closeModals()" style="margin-top: 15px; border-style: dashed;">CANCEL</button>
         </div>
     </div>
@@ -954,7 +968,7 @@
     <div id="pre-boot-overlay" class="modal-overlay" style="z-index: 250; background: var(--pip-bg); flex-direction: column; display: none;">
         <!-- Version Tag & Dev Skip Button -->
         <div style="position: absolute; top: 10px; right: 10px; z-index: 260; display: flex; flex-direction: column; align-items: flex-end; gap: 5px;">
-            <span style="font-size: 0.8rem; opacity: 0.5;">v0.96</span>
+            <span style="font-size: 0.8rem; opacity: 0.5;">v0.98</span>
             <button class="pip-btn" onclick="devSkipToApp()" style="font-size: 0.7rem; padding: 2px 5px; border: none; color: #ff3333; opacity: 0.5;">[DEV: FAST BOOT]</button>
         </div>
         
@@ -985,7 +999,7 @@
 
     <!-- BOOT SPLASH SCREEN -->
     <div id="boot-splash" class="modal-overlay" style="z-index: 200; background: var(--pip-bg); flex-direction: column; display: flex;">
-        <span style="position: absolute; top: 10px; right: 10px; font-size: 0.8rem; opacity: 0.5; z-index: 203;">v0.96</span>
+        <span style="position: absolute; top: 10px; right: 10px; font-size: 0.8rem; opacity: 0.5; z-index: 203;">v0.98</span>
         <div class="crt" style="position: absolute; top:0; left:0; right:0; bottom:0; pointer-events: none; z-index: 201;"></div>
         <div style="z-index: 202; width: 100%; max-width: 600px; padding: 20px; text-align: left; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; justify-content: flex-end;" id="boot-text-container">
             <p id="boot-log-1" style="margin-bottom: 5px; display: none; font-size: 1rem;">ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM</p>

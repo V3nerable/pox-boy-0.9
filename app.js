@@ -1924,26 +1924,87 @@
         }
 
         function createQuestForm(type) {
-            let html = `<h3 style="border-bottom:1px solid var(--pip-color); padding-bottom:5px; margin-bottom:15px;">CREATE ${type.toUpperCase()} QUEST</h3>`;
-            html += `<div class="form-group"><label>TITLE</label><input type="text" id="new-quest-title" class="pip-input" maxlength="100" placeholder="Quest title..."></div>`;
-            html += `<div class="form-group"><label>DESCRIPTION</label><textarea id="new-quest-desc" class="pip-input" maxlength="500" rows="3" placeholder="Quest details..."></textarea></div>`;
-            html += `<div class="form-group"><label>REWARD (optional)</label><input type="text" id="new-quest-reward" class="pip-input" maxlength="100" placeholder="e.g., 50 caps, a drink..."></div>`;
+            // Show the unified quest creation modal
+            document.getElementById('create-quest-modal').style.display = 'flex';
+            document.getElementById('cq-modal-title').innerText = 'CREATE ' + type.toUpperCase() + ' QUEST';
+            
+            // Clear form fields
+            document.getElementById('new-quest-title').value = '';
+            document.getElementById('new-quest-desc').value = '';
+            document.getElementById('new-quest-reward').value = '';
+            
+            // Store the quest type for submission
+            window.pendingQuestType = type;
+            
+            // Show/hide recipient/target fields based on type
+            const recipientGroup = document.getElementById('quest-recipient-group');
+            const targetGroup = document.getElementById('quest-target-group');
+            
             if (type === 'direct') {
-                html += `<div class="form-group"><label>RECIPIENT</label><select id="new-quest-recipient" class="pip-input"><option value="">Select contact...</option>`;
-                rolodex.forEach(c => {
-                    html += `<option value="${c.uid}">${escapeHtml(c.name)}</option>`;
-                });
-                html += `</select></div>`;
+                recipientGroup.style.display = 'block';
+                targetGroup.style.display = 'none';
+                // Populate recipient dropdown with MUTUAL contacts only
+                const recipientSelect = document.getElementById('new-quest-recipient');
+                recipientSelect.innerHTML = '<option value="">Select mutual contact...</option>';
+                const mutualContacts = rolodex.filter(c => isMutualLink(c.uid));
+                if (mutualContacts.length === 0) {
+                    recipientSelect.innerHTML += '<option value="" disabled>No mutual contacts yet</option>';
+                } else {
+                    mutualContacts.forEach(c => {
+                        recipientSelect.innerHTML += `<option value="${c.uid}">${escapeHtml(c.name)}</option>`;
+                    });
+                }
             } else if (type === 'bounty') {
-                html += `<div class="form-group"><label>TARGET</label><select id="new-quest-target" class="pip-input"><option value="">Select target...</option>`;
+                recipientGroup.style.display = 'none';
+                targetGroup.style.display = 'block';
+                // Populate target dropdown with ALL known wastelanders (rolodex + beacon data)
+                const targetSelect = document.getElementById('new-quest-target');
+                targetSelect.innerHTML = '<option value="">Select target...</option>';
+                
+                // Add rolodex contacts
                 rolodex.forEach(c => {
-                    html += `<option value="${c.uid}" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`;
+                    targetSelect.innerHTML += `<option value="${c.uid}" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)} (contact)</option>`;
                 });
-                html += `</select></div>`;
+                
+                // Add beacon wastelanders not already in rolodex
+                const rolodexUids = new Set(rolodex.map(c => c.uid));
+                Object.keys(lastKnownBeaconData).forEach(uid => {
+                    if (!rolodexUids.has(uid) && uid !== myMailUid) {
+                        const beacon = lastKnownBeaconData[uid];
+                        const name = beacon.name || 'UNKNOWN';
+                        targetSelect.innerHTML += `<option value="${uid}" data-name="${escapeHtml(name)}">${escapeHtml(name)} (signal)</option>`;
+                    }
+                });
+            } else {
+                // Global quest - no recipient or target
+                recipientGroup.style.display = 'none';
+                targetGroup.style.display = 'none';
             }
-            html += `<button class="pip-btn" onclick="submitQuest('${type}')">CREATE QUEST</button>`;
-            html += `<button class="pip-btn" style="border-style:dashed; opacity:0.7;" onclick="closeCustomPrompt()">CANCEL</button>`;
-            showCustomPrompt(html, []);
+        }
+        
+        function submitQuestFromModal() {
+            const type = window.pendingQuestType;
+            if (!type) {
+                showNotification('ERROR: No quest type selected');
+                return;
+            }
+            
+            // For bounty, populate window.selectedBountyTarget
+            if (type === 'bounty') {
+                const targetSelect = document.getElementById('new-quest-target');
+                const selectedOption = targetSelect.options[targetSelect.selectedIndex];
+                if (!selectedOption || !selectedOption.value) {
+                    showNotification('TARGET REQUIRED');
+                    return;
+                }
+                window.selectedBountyTarget = {
+                    uid: selectedOption.value,
+                    name: selectedOption.dataset.name
+                };
+            }
+            
+            closeModals();
+            submitQuest(type);
         }
 
         function submitQuest(type) {
@@ -1978,10 +2039,10 @@
             window.firebasePush(questRef, questData)
                 .then(ref => {
                     const questId = ref.key;
-                    closeCustomPrompt();
                     showNotification('QUEST CREATED');
                     if (type === 'direct') {
                         // Send quest-offer mail to recipient
+                        const recipientUid = document.getElementById('new-quest-recipient').value;
                         queueMail(recipientUid, 'quest-offer', {
                             questId: questId,
                             title: title,

@@ -208,3 +208,41 @@ flag writes (claimed/declined/fulfilled on mail letters) pass these validators.
 *   **v0.95:** BLANK SCREEN FIX. Root cause: renderActiveQuests() was calling `firebaseQuests.forEach()` but `firebaseQuests` is an object (`{}`), not an array — objects don't have `.forEach()`. This crashed the app on load. Fix: changed to `quests.forEach()` for the legacy local quests array (from localStorage). Cache bumped to pipboy-cache-v84.
 *   **v0.96:** BLANK SCREEN CRASH FIX + VERSION DISPLAYS. Root cause: `renderQuests()` function was missing — called at startup (line 7469) and in 14+ other places throughout the code, but never defined after the quest system rebuild in v0.91. This threw `ReferenceError: renderQuests is not defined` and crashed the app immediately on load, leaving only the CRT glow visible. Fix: Added `renderQuests()` wrapper function that detects the active quest sub-tab and calls the appropriate new render function (`renderActiveQuests`/`renderAvailableQuests`/`renderIssuedQuests`). VERSION DISPLAYS: Updated two hardcoded v0.84 version tags on the boot splash screen and pre-boot calibration overlay to v0.96. Cache bumped to pipboy-cache-v85.
 
+
+## 7. Deployment & Testing Guide
+
+**Standard deployment process:**
+1. Update version number in `index.html` (header line ~60, boot splash screen, pre-boot overlay)
+2. Update `CACHE_NAME` in `sw.js` (increment the number, e.g., `pipboy-cache-v85` → `pipboy-cache-v86`)
+3. Test locally if possible
+4. Create zip: `cd pwa && zip -r ../Pox-Boy-3026-vX.XX.zip . -x ".git/*" "node_modules/*"`
+5. Commit and push to Git (triggers Netlify auto-deploy)
+6. Hard refresh on test devices to clear service worker cache
+7. Update this document's changelog
+
+**Testing on Netlify Drop (temp deployments):**
+- ✅ **Works on drop:** UI changes, CSS fixes, local storage features (items, stats, mutations, S.P.E.C.I.A.L.), JavaScript bug fixes, virtual keyboard, PWA install
+- ❌ **Requires production deployment:** Firebase features (quests, map beacons, mail, global contracts, bounties, shared pins, pariahs, rad zones, radio sync, announcements) — Firebase blocks connections from unauthorized domains like `random-name-12345.netlify.app`
+- **Rule of thumb:** If the feature uses `firebaseRef()`, `firebaseOnValue()`, `firebaseSet()`, `firebaseUpdate()`, or `firebaseRemove()`, it needs production deployment to test
+- **When in doubt:** Check the deployment report — if it mentions "Firebase rules updated" or "new Firebase node", it needs production deployment
+
+**Quick reference for common features:**
+| Feature | Works on Drop? | Notes |
+|---------|----------------|-------|
+| Items/Inventory | ✅ | Local storage only |
+| Stats/S.P.E.C.I.A.L. | ✅ | Local storage only |
+| Mutations | ✅ | Local storage only |
+| Factions | ✅ | Local storage only |
+| Waypoints | ⚠️ Partial | Local waypoints work; shared pins need Firebase |
+| Map | ⚠️ Partial | Map renders, but no live beacons without Firebase |
+| Quests (local) | ✅ | Old localStorage quests work |
+| Quests (unified v0.91+) | ❌ | Requires Firebase `quests/` node |
+| Mail/P2P comms | ❌ | Requires Firebase `mail/` node |
+| Camera/Databank | ✅ | Local storage only |
+| Radio | ⚠️ Partial | Local playback works; sync needs Firebase |
+| Overseer features | ❌ | Most require Firebase |
+
+*   **v0.97:** QUEST CREATION FORM FIX. Root cause: `createQuestForm()` was building HTML as a string and passing it to `showCustomPrompt(html, [])`, which treats the first parameter as plain text and displays the raw HTML instead of rendering it. Fix: Created dedicated `create-quest-modal` in index.html with proper form fields (title, description, reward, recipient/target dropdowns). Updated `createQuestForm()` to show the modal, populate dropdowns based on quest type, and store pending quest type. Added `submitQuestFromModal()` to read form values and call `submitQuest()`. Removed `closeCustomPrompt()` call from submitQuest since modal is now closed via `closeModals()`. Cache bumped to pipboy-cache-v86.
+
+*   **v0.98:** QUEST CREATION PERMISSIONS. Updated `createQuestForm()` to enforce permission rules: (1) **Direct quests** can only be issued to mutual contacts (2-way handshake confirmed) — dropdown filters rolodex via `isMutualLink(uid)`, shows "No mutual contacts yet" if empty. (2) **Bounties** can be placed on anyone — dropdown shows all rolodex contacts PLUS all known wastelanders from `lastKnownBeaconData` (map signals), labeled as "(contact)" or "(signal)". (3) **Global quests** remain open to anyone (no recipient/target selection). Cache bumped to pipboy-cache-v87.
+

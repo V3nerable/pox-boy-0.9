@@ -1789,6 +1789,17 @@
             });
         }
 
+        // v0.95: Legacy renderQuests() wrapper — calls the appropriate new render function
+        function renderQuests() {
+            const activeTab = document.querySelector('#quest-sub-nav .sub-nav-item.active');
+            if (activeTab) {
+                const tabText = activeTab.textContent.trim();
+                if (tabText === 'ACTIVE') renderActiveQuests();
+                else if (tabText === 'AVAILABLE') renderAvailableQuests();
+                else if (tabText === 'ISSUED') renderIssuedQuests();
+            }
+        }
+
         // === UNIFIED QUEST SYSTEM (v0.91) ===
         let firebaseQuests = {}; // Firebase firebaseQuests data
 

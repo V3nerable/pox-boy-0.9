@@ -124,6 +124,41 @@
         "$other":          { ".validate": false }
       }
     },
+    "quests": {
+      ".read": true,
+      "$questId": {
+        ".write": true,
+        "title":         { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
+        "description":   { ".validate": "newData.isString() && newData.val().length <= 500" },
+        "reward":        { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "type":          { ".validate": "newData.isString() && (newData.val() == 'direct' || newData.val() == 'global' || newData.val() == 'bounty')" },
+        "issuerUid":     { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "issuerName":    { ".validate": "newData.isString() && newData.val().length <= 32" },
+        "status":        { ".validate": "newData.isString() && (newData.val() == 'open' || newData.val() == 'cancelled')" },
+        "assignedTo":    { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "targetUid":     { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "targetName":    { ".validate": "newData.isString() && newData.val().length <= 32" },
+        "expiresAt":     { ".validate": "newData.isNumber() || newData.val() == null" },
+        "createdAt":     { ".validate": "newData.isNumber() && newData.val() > 1735689600000" },
+        "progress": {
+          "$uid": {
+            ".write": true,
+            "acceptedAt":      { ".validate": "newData.isNumber()" },
+            "status":          { ".validate": "newData.isString() && (newData.val() == 'accepted' || newData.val() == 'completed' || newData.val() == 'verified' || newData.val() == 'rejected')" },
+            "completedAt":     { ".validate": "newData.isNumber() || newData.val() == null" },
+            "completedByName": { ".validate": "newData.isString() && newData.val().length <= 32" },
+            "evidencePhoto":   { ".validate": "newData.isString()" },
+            "verifiedBy":      { ".validate": "newData.isString() && newData.val().length <= 64" },
+            "verifiedByName":  { ".validate": "newData.isString() && newData.val().length <= 32" },
+            "verifiedAt":      { ".validate": "newData.isNumber() || newData.val() == null" },
+            "rejectedBy":      { ".validate": "newData.isString() && newData.val().length <= 64" },
+            "rejectedAt":      { ".validate": "newData.isNumber() || newData.val() == null" },
+            "$other":          { ".validate": false }
+          }
+        },
+        "$other":        { ".validate": false }
+      }
+    },
     "bounties": {
       ".read": true,
       "$bountyId": {

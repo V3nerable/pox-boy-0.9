@@ -209,24 +209,28 @@
         #custom-prompt-modal {
             position: fixed !important;
             top: 0; left: 0; right: 0; bottom: 0;
-            align-items: flex-start;
-            justify-content: center;
+            width: 100vw;
+            height: 100vh;
             overflow-y: auto;
+            overflow-x: hidden;
             -webkit-overflow-scrolling: touch;
             padding: 20px;
+            box-sizing: border-box;
             /* v0.61: override global user-select:none which blocks touch scrolling */
             user-select: auto !important;
             -webkit-user-select: auto !important;
             touch-action: pan-y !important;
         }
         /* v0.85: explicit active state — was display:flex!important which made modal always visible */
+        /* v0.91: display:block instead of flex — flex containers don't scroll properly with tall children */
         #custom-prompt-modal.active {
-            display: flex !important;
+            display: block !important;
         }
         #custom-prompt-modal .modal-content {
-            max-height: 90vh;
-            overflow-y: auto;
+            max-height: none;
+            overflow-y: visible;
             margin: 20px auto;
+            flex-shrink: 0;
             user-select: auto !important;
             -webkit-user-select: auto !important;
             touch-action: pan-y !important;

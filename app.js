@@ -1770,424 +1770,445 @@
             };
             btnContainer.appendChild(closeBtn);
             
-            // v0.85: use class toggle + inline style — CSS no longer forces display:flex!important
+            // v0.94: display:block — overlay is the single scroll container
             const cpModal = document.getElementById('custom-prompt-modal');
-            cpModal.style.display = 'flex';
+            // v0.94: reset scroll BEFORE showing to prevent inherited scroll position
+            cpModal.scrollTop = 0;
+            const mcEl = cpModal.querySelector('.modal-content');
+            if (mcEl) mcEl.scrollTop = 0;
+            cpModal.style.display = 'block';
             cpModal.classList.add('active');
-            // v0.88: scroll modal-content to top (single scroll container)
-            const mc = cpModal ? cpModal.querySelector('.modal-content') : null;
-            if (mc) { mc.scrollTop = 0; mc.style.webkitOverflowScrolling = 'touch'; }
-        }
-
-        function renderQuests() {
-            const container = document.getElementById('quest-tab-direct');
-            if (!container) return;
-            container.innerHTML = '';
-            if (quests.length === 0) return container.innerHTML = '<p style="text-align:center; opacity:0.5;">NO DIRECT QUESTS</p>';
-            
-            quests.forEach(q => {
-                const el = document.createElement('div'); 
-                el.className = `item-row ${(q.completed || q.expired || q.abandoned) ? 'quest-completed' : ''}`;
-                el.style.flexDirection = 'column';
-                el.onclick = () => openQuestActionModal(q.id);
-                
-                let timeDisplay = `[${q.timeStr || q.time || '--:--'}]`;
-                if (q.expired) timeDisplay = `<span style="opacity: 0.5;">[EXPIRED]</span>`;
-                else if (q.completed) timeDisplay = `[COMPLETED]`;
-                else if (q.abandoned) timeDisplay = `[ABANDONED]`;
-                else if (q.expireTime) timeDisplay = `<span id="timer-${q.id}"></span>`;
-
-                let objHTML = q.objectives.map(obj => `<div class="quest-objective">${obj}</div>`).join('');
-                
-                let giverLine = q.giver ? `<div style="font-size: 0.85rem; opacity: 0.7; padding-left: 15px; margin-top: 2px;">GIVER: ${q.giver}</div>` : '';
-
-                if (q.abandoned) {
-                    el.innerHTML = `
-                        <div style="display: flex; justify-content: space-between;">
-                            <div><del>☒ ${q.name}</del></div>
-                            <div style="font-size: 0.9rem; opacity: 0.7;">${timeDisplay}</div>
-                        </div>
-                        <div style="font-size: 0.85rem; opacity: 0.7; padding-left: 15px; margin-top: 4px; text-decoration: line-through;">LOC: ${q.location} | TYPE: ${q.type}</div>
-                        <div style="font-size: 0.85rem; opacity: 0.7; padding-left: 15px; margin-top: 2px; text-decoration: line-through;">${giverLine ? giverLine.replace(/<[^>]*>?/gm, '') : ''}</div>
-                    `;
-                } else {
-                    el.innerHTML = `
-                        <div style="display: flex; justify-content: space-between;">
-                            <div>${q.completed ? '☑' : (q.expired ? '☒' : '■')} ${q.name}</div>
-                            <div style="font-size: 0.9rem; opacity: 0.7;">${timeDisplay}</div>
-                        </div>
-                        <div style="font-size: 0.85rem; opacity: 0.7; padding-left: 15px; margin-top: 4px;">LOC: ${q.location} | TYPE: ${q.type}</div>
-                        ${giverLine}
-                        <div style="margin-top: 8px;">${objHTML}</div>
-                    `;
-                }
-                container.appendChild(el);
+            // v0.94: triple-tap scroll reset — immediate, after paint, and after paint-of-paint
+            cpModal.scrollTop = 0;
+            requestAnimationFrame(() => {
+                cpModal.scrollTop = 0;
+                requestAnimationFrame(() => {
+                    cpModal.scrollTop = 0;
+                    if (cpModal.scrollTo) cpModal.scrollTo(0, 0);
+                });
             });
         }
 
-        // v0.70: Quest tab switching (Direct / Global / Bounties)
+        // === UNIFIED QUEST SYSTEM (v0.91) ===
+        let firebaseQuests = {}; // Firebase firebaseQuests data
+
         function switchQuestTab(tabId) {
-            const subNav = document.getElementById('quest-sub-nav');
-            if (!subNav) return;
-            subNav.querySelectorAll('.sub-nav-item').forEach(el => {
-                const oc = el.getAttribute('onclick') || '';
-                el.classList.toggle('active', oc.includes("'" + tabId + "'"));
-            });
-            document.querySelectorAll('.quest-tab-content').forEach(el => {
-                el.classList.remove('active');
-                el.style.display = 'none';
-            });
-            const target = document.getElementById('quest-tab-' + tabId);
-            if (target) {
-                target.classList.add('active');
-                target.style.display = 'block';
-            }
-            // Render the appropriate tab
-            if (tabId === 'direct') renderQuests();
-            else if (tabId === 'global') renderGlobalContracts();
-            else if (tabId === 'bounties') renderBounties();
-        }
-
-        // v0.70: Render global contracts
-        function renderGlobalContracts() {
-            const container = document.getElementById('quest-tab-global');
-            if (!container) return;
-            container.innerHTML = '';
-            
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            const myUid = localStorage.getItem('pipboy-uid');
-            if (isDev) {
-                container.innerHTML += '<button class="theme-btn" onclick="createGlobalContract()" style="width:100%; border-style:dashed; margin-bottom:15px;">[+ CREATE GLOBAL CONTRACT]</button>';
-            }
-            
-            // v0.85: show ALL contracts (open + completed awaiting verification + verified)
-            const allContracts = Object.entries(globalContracts);
-            if (allContracts.length === 0) {
-                container.innerHTML += '<p style="text-align:center; opacity:0.5;">NO GLOBAL CONTRACTS</p>';
-                return;
-            }
-            
-            // Sort: open first, then completed awaiting verification, then verified/rejected
-            allContracts.sort((a, b) => {
-                const aStatus = a[1].status || 'open';
-                const bStatus = b[1].status || 'open';
-                const order = { open: 0, completed: 1, verified: 2, rejected: 3 };
-                return (order[aStatus] || 0) - (order[bStatus] || 0);
-            });
-            
-            allContracts.forEach(([id, c]) => {
-                const el = document.createElement('div');
-                el.className = 'item-row';
-                el.style.flexDirection = 'column';
-                el.onclick = () => openGlobalContractModal(id, c);
-                
-                const typeLabel = c.type === 'first' ? 'FIRST TO COMPLETE' : (c.type === 'many' ? 'MANY CAN COMPLETE' : 'TIMED');
-                const expiresStr = c.expiresAt ? `EXPIRES: ${new Date(c.expiresAt).toLocaleString()}` : 'NO EXPIRY';
-                
-                // v0.85: determine completion/verification status
-                const alreadyCompleted = c.type === 'many' && c.completedBy && c.completedBy.includes(myUid);
-                const isCompleted = c.status === 'completed';
-                const isVerified = c.verifiedBy && c.verifiedBy !== 'REJECTED';
-                const isRejected = c.status === 'rejected' || c.verifiedBy === 'REJECTED';
-                
-                let statusLine = '';
-                let textDecoration = 'none';
-                let opacity = '1';
-                let borderColor = '';
-                
-                if (isVerified) {
-                    statusLine = `<div style="font-size: 0.85rem; color: #39ff14; margin-top: 4px;">✓ VERIFIED BY ${escapeHtml(c.verifiedBy)}</div>`;
-                    textDecoration = 'line-through';
-                    opacity = '0.6';
-                    borderColor = 'border-color: #39ff14;';
-                } else if (isRejected) {
-                    statusLine = `<div style="font-size: 0.85rem; color: #ff3333; margin-top: 4px;">✗ REJECTED</div>`;
-                    textDecoration = 'line-through';
-                    opacity = '0.4';
-                    borderColor = 'border-color: #ff3333;';
-                } else if (isCompleted) {
-                    statusLine = `<div style="font-size: 0.85rem; color: #ffb642; margin-top: 4px;">⏳ AWAITING VERIFICATION</div>`;
-                    if (c.completedByName) statusLine += `<div style="font-size: 0.8rem; opacity: 0.6;">COMPLETED BY: ${escapeHtml(c.completedByName)}</div>`;
-                    textDecoration = 'line-through';
-                    opacity = '0.7';
-                    borderColor = 'border-color: #ffb642;';
-                } else if (alreadyCompleted) {
-                    statusLine = `<div style="font-size: 0.85rem; color: #ffb642; margin-top: 4px;">⏳ YOU COMPLETED — AWAITING VERIFICATION</div>`;
-                    textDecoration = 'line-through';
-                    opacity = '0.7';
-                    borderColor = 'border-color: #ffb642;';
+            const tabs = ['active', 'available', 'issued'];
+            tabs.forEach(t => {
+                const navItem = document.querySelector(`#quest-sub-nav .sub-nav-item:nth-child(${tabs.indexOf(t) + 1})`);
+                const content = document.getElementById('quest-tab-' + t);
+                if (t === tabId) {
+                    if (navItem) navItem.classList.add('active');
+                    if (content) content.style.display = 'block';
+                } else {
+                    if (navItem) navItem.classList.remove('active');
+                    if (content) content.style.display = 'none';
                 }
-                
-                if (borderColor) el.style.cssText += borderColor;
-                
-                el.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; opacity: ${opacity};">
-                        <div style="text-decoration: ${textDecoration};">■ ${escapeHtml(c.title)}</div>
-                        <div style="font-size: 0.85rem; opacity: 0.7;">${typeLabel}</div>
-                    </div>
-                    <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 4px;">ISSUED BY: ${escapeHtml(c.issuerName || 'UNKNOWN')}</div>
-                    ${!isCompleted && !isVerified && !isRejected ? `<div style="font-size: 0.85rem; opacity: 0.6; margin-top: 2px;">${expiresStr}</div>` : ''}
-                    <div style="margin-top: 6px; font-size: 0.9rem; opacity: ${opacity}; text-decoration: ${textDecoration};">${escapeHtml(c.description || '')}</div>
-                    ${c.reward ? `<div style="margin-top: 4px; font-size: 0.85rem; color: #5fc98e; opacity: ${opacity};">REWARD: ${escapeHtml(c.reward)}</div>` : ''}
-                    ${statusLine}
-                `;
-                container.appendChild(el);
             });
+            if (tabId === 'active') renderActiveQuests();
+            else if (tabId === 'available') renderAvailableQuests();
+            else if (tabId === 'issued') renderIssuedQuests();
         }
 
-        // v0.70: Render bounties
-        function renderBounties() {
-            const container = document.getElementById('quest-tab-bounties');
+        function renderActiveQuests() {
+            const container = document.getElementById('quest-tab-active');
             if (!container) return;
-            container.innerHTML = '';
-            
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (isDev) {
-                container.innerHTML += '<button class="theme-btn" onclick="createBounty()" style="width:100%; border-style:dashed; margin-bottom:15px;">[+ POST BOUNTY]</button>';
-            }
-            
-            const openBounties = Object.entries(bounties).filter(([id, b]) => b.status === 'open');
-            if (openBounties.length === 0) {
-                container.innerHTML += '<p style="text-align:center; opacity:0.5;">NO OPEN BOUNTIES</p>';
-                return;
-            }
-            
-            openBounties.forEach(([id, b]) => {
-                const el = document.createElement('div');
-                el.className = 'item-row';
-                el.style.flexDirection = 'column';
-                el.onclick = () => openBountyModal(id, b);
-                
-                const expiresStr = b.expiresAt ? `EXPIRES: ${new Date(b.expiresAt).toLocaleString()}` : 'NO EXPIRY';
-                
-                el.innerHTML = `
-                    <div style="display: flex; justify-content: space-between;">
-                        <div>☠ ${escapeHtml(b.targetName)}</div>
-                        <div style="font-size: 0.85rem; color: #ff3333;">BOUNTY</div>
-                    </div>
-                    <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 4px;">POSTED BY: ${escapeHtml(b.issuerName || 'UNKNOWN')}</div>
-                    <div style="font-size: 0.85rem; opacity: 0.6; margin-top: 2px;">${expiresStr}</div>
-                    <div style="margin-top: 6px; font-size: 0.9rem;">${escapeHtml(b.reason || '')}</div>
-                    ${b.reward ? `<div style="margin-top: 4px; font-size: 0.85rem; color: #ffb642;">REWARD: ${escapeHtml(b.reward)}</div>` : ''}
-                `;
-                container.appendChild(el);
+            const myUid = localStorage.getItem('pipboy-uid');
+            const html = [];
+
+            // Legacy local firebaseQuests
+            firebaseQuests.forEach(q => {
+                if (q.completed || q.expired || q.abandoned) return;
+                html.push(`<div class="item-row" onclick="openQuestActionModal('${q.id}')">
+                    <div style="font-weight:bold;">${escapeHtml(q.name)}</div>
+                    <div style="font-size:0.85rem; opacity:0.7;">${escapeHtml(q.giver || 'UNKNOWN')}</div>
+                    <div style="font-size:0.85rem; opacity:0.6;">${q.expireTime ? 'EXPIRES: ' + new Date(q.expireTime).toLocaleString() : 'NO EXPIRY'}</div>
+                </div>`);
             });
-        }
 
-        // v0.70: Create global contract (overseer only)
-        function createGlobalContract() {
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (!isDev) { showNotification('OVERSEER ACCESS REQUIRED'); return; }
-            
-            // v0.72: Open the global contract form modal instead of step-by-step prompts
-            document.getElementById('gc-title').value = '';
-            document.getElementById('gc-desc').value = '';
-            document.getElementById('gc-reward').value = '';
-            document.getElementById('gc-expires').value = '';
-            window.selectedGlobalContractType = 'first';
-            updateGlobalContractTypeDisplay();
-            document.getElementById('compose-global-contract-modal').style.display = 'flex';
-        }
-
-        // v0.72: Select global contract type
-        function selectGlobalContractType(type) {
-            window.selectedGlobalContractType = type;
-            updateGlobalContractTypeDisplay();
-        }
-
-        function updateGlobalContractTypeDisplay() {
-            const type = window.selectedGlobalContractType || 'first';
-            const labels = {
-                'first': 'FIRST TO COMPLETE',
-                'many': 'MANY CAN COMPLETE',
-                'timed': 'TIMED'
-            };
-            const display = document.getElementById('gc-type-display');
-            if (display) display.innerText = 'Selected: ' + (labels[type] || 'FIRST TO COMPLETE');
-            
-            // Update button styles
-            document.querySelectorAll('.gc-type-btn').forEach(btn => {
-                btn.style.borderColor = '';
-                btn.style.color = '';
+            // Firebase firebaseQuests I've accepted
+            Object.keys(firebaseQuests).forEach(id => {
+                const q = firebaseQuests[id];
+                const prog = q.progress && q.progress[myUid];
+                if (!prog || prog.status === 'rejected') return;
+                const statusText = prog.status === 'completed' ? '⏳ AWAITING VERIFICATION' :
+                                   prog.status === 'verified' ? '✓ VERIFIED' : 'ACTIVE';
+                const strike = prog.status !== 'accepted' ? 'line-through' : 'none';
+                const opacity = prog.status === 'verified' ? '0.6' : prog.status === 'completed' ? '0.7' : '1';
+                const border = prog.status === 'verified' ? '#39ff14' : prog.status === 'completed' ? '#ffb642' : 'var(--pip-color-dim)';
+                html.push(`<div class="item-row" style="border-color:${border}; opacity:${opacity};" onclick="openQuestModal('${id}')">
+                    <div style="font-weight:bold; text-decoration:${strike};">${escapeHtml(q.title)}</div>
+                    <div style="font-size:0.85rem; opacity:0.7;">${q.type.toUpperCase()} — ${escapeHtml(q.issuerName || 'UNKNOWN')}</div>
+                    <div style="font-size:0.85rem; color:${border};">${statusText}</div>
+                    ${q.reward ? `<div style="font-size:0.85rem; color:#5fc98e;">REWARD: ${escapeHtml(q.reward)}</div>` : ''}
+                </div>`);
             });
-            const selectedBtn = document.querySelector('.gc-type-btn[onclick*="' + type + '"]');
-            if (selectedBtn) {
-                selectedBtn.style.borderColor = 'var(--pip-color)';
-                selectedBtn.style.color = 'var(--pip-color)';
-            }
+
+            container.innerHTML = html.length ? html.join('') : '<p style="text-align:center; opacity:0.5;">NO ACTIVE QUESTS</p>';
         }
 
-        // v0.72: Submit global contract form
-        function submitGlobalContractForm() {
-            const title = document.getElementById('gc-title').value.trim();
-            const description = document.getElementById('gc-desc').value.trim();
-            const reward = document.getElementById('gc-reward').value.trim();
-            const expiresHours = document.getElementById('gc-expires').value.trim();
-            const type = window.selectedGlobalContractType || 'first';
-            
+        function renderAvailableQuests() {
+            const container = document.getElementById('quest-tab-available');
+            if (!container) return;
+            const myUid = localStorage.getItem('pipboy-uid');
+            const html = [];
+
+            Object.keys(firebaseQuests).forEach(id => {
+                const q = firebaseQuests[id];
+                if (q.status !== 'open') return;
+                if (q.type === 'direct') return; // direct firebaseQuests not shown here
+                const alreadyAccepted = q.progress && q.progress[myUid];
+                if (alreadyAccepted) return; // already accepted
+                const typeLabel = q.type === 'global' ? '🌍 GLOBAL' : '☠ BOUNTY';
+                const targetLine = q.type === 'bounty' ? `<div style="font-size:0.85rem; color:#ff3333;">TARGET: ${escapeHtml(q.targetName || 'UNKNOWN')}</div>` : '';
+                html.push(`<div class="item-row" onclick="openQuestModal('${id}')">
+                    <div style="font-weight:bold;">${escapeHtml(q.title)}</div>
+                    <div style="font-size:0.85rem; opacity:0.7;">${typeLabel} — ${escapeHtml(q.issuerName || 'UNKNOWN')}</div>
+                    ${targetLine}
+                    ${q.reward ? `<div style="font-size:0.85rem; color:#5fc98e;">REWARD: ${escapeHtml(q.reward)}</div>` : ''}
+                    <div style="font-size:0.85rem; opacity:0.6;">${q.expiresAt ? 'EXPIRES: ' + new Date(q.expiresAt).toLocaleString() : 'NO EXPIRY'}</div>
+                </div>`);
+            });
+
+            container.innerHTML = html.length ? html.join('') : '<p style="text-align:center; opacity:0.5;">NO AVAILABLE QUESTS</p>';
+        }
+
+        function renderIssuedQuests() {
+            const container = document.getElementById('quest-tab-issued');
+            if (!container) return;
+            const myUid = localStorage.getItem('pipboy-uid');
+            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
+            const html = [];
+
+            Object.keys(firebaseQuests).forEach(id => {
+                const q = firebaseQuests[id];
+                if (q.issuerUid !== myUid && !isDev) return;
+                const pendingVerifications = [];
+                if (q.progress) {
+                    Object.keys(q.progress).forEach(uid => {
+                        if (q.progress[uid].status === 'completed') {
+                            pendingVerifications.push({ uid, ...q.progress[uid] });
+                        }
+                    });
+                }
+                const pendingCount = pendingVerifications.length;
+                const borderColor = pendingCount > 0 ? '#ffb642' : 'var(--pip-color-dim)';
+                html.push(`<div class="item-row" style="border-color:${borderColor};" onclick="openIssuedQuestModal('${id}')">
+                    <div style="font-weight:bold;">${escapeHtml(q.title)}</div>
+                    <div style="font-size:0.85rem; opacity:0.7;">${q.type.toUpperCase()} — ${q.status === 'open' ? 'OPEN' : q.status.toUpperCase()}</div>
+                    ${pendingCount > 0 ? `<div style="font-size:0.85rem; color:#ffb642;">⏳ ${pendingCount} PENDING VERIFICATION${pendingCount > 1 ? 'S' : ''}</div>` : ''}
+                </div>`);
+            });
+
+            container.innerHTML = html.length ? html.join('') : '<p style="text-align:center; opacity:0.5;">NO ISSUED QUESTS</p>';
+        }
+
+        function openCreateQuestModal() {
+            showCustomPrompt('SELECT QUEST TYPE', [
+                { label: '📋 DIRECT (send to specific person)', action: () => createQuestForm('direct') },
+                { label: '🌍 GLOBAL (visible to all)', action: () => createQuestForm('global') },
+                { label: '☠ BOUNTY (hunt a target)', action: () => createQuestForm('bounty') },
+                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
+            ]);
+        }
+
+        function createQuestForm(type) {
+            let html = `<h3 style="border-bottom:1px solid var(--pip-color); padding-bottom:5px; margin-bottom:15px;">CREATE ${type.toUpperCase()} QUEST</h3>`;
+            html += `<div class="form-group"><label>TITLE</label><input type="text" id="new-quest-title" class="pip-input" maxlength="100" placeholder="Quest title..."></div>`;
+            html += `<div class="form-group"><label>DESCRIPTION</label><textarea id="new-quest-desc" class="pip-input" maxlength="500" rows="3" placeholder="Quest details..."></textarea></div>`;
+            html += `<div class="form-group"><label>REWARD (optional)</label><input type="text" id="new-quest-reward" class="pip-input" maxlength="100" placeholder="e.g., 50 caps, a drink..."></div>`;
+            if (type === 'direct') {
+                html += `<div class="form-group"><label>RECIPIENT</label><select id="new-quest-recipient" class="pip-input"><option value="">Select contact...</option>`;
+                rolodex.forEach(c => {
+                    html += `<option value="${c.uid}">${escapeHtml(c.name)}</option>`;
+                });
+                html += `</select></div>`;
+            } else if (type === 'bounty') {
+                html += `<div class="form-group"><label>TARGET</label><select id="new-quest-target" class="pip-input"><option value="">Select target...</option>`;
+                rolodex.forEach(c => {
+                    html += `<option value="${c.uid}" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`;
+                });
+                html += `</select></div>`;
+            }
+            html += `<button class="pip-btn" onclick="submitQuest('${type}')">CREATE QUEST</button>`;
+            html += `<button class="pip-btn" style="border-style:dashed; opacity:0.7;" onclick="closeCustomPrompt()">CANCEL</button>`;
+            showCustomPrompt(html, []);
+        }
+
+        function submitQuest(type) {
+            const title = document.getElementById('new-quest-title').value.trim();
+            const desc = document.getElementById('new-quest-desc').value.trim();
+            const reward = document.getElementById('new-quest-reward').value.trim();
             if (!title) { showNotification('TITLE REQUIRED'); return; }
-            
-            const contractId = 'gc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            const contract = {
-                title: title,
-                description: description || '',
-                issuerUid: localStorage.getItem('pipboy-uid') || 'unknown',
-                issuerName: userProfile.name || 'UNKNOWN',
-                type: type,
-                reward: reward || '',
-                expiresAt: null,
-                status: 'open',
-                completedBy: type === 'many' ? [] : null,
-                createdAt: Date.now()
-            };
-            
-            if (expiresHours && !isNaN(parseFloat(expiresHours))) {
-                contract.expiresAt = Date.now() + (parseFloat(expiresHours) * 3600000);
-            }
-            
-            window.firebaseSet(window.firebaseRef(window.db, 'globalContracts/' + contractId), contract)
-                .then(() => {
-                    showNotification('GLOBAL CONTRACT CREATED');
-                    closeModals();
-                    renderGlobalContracts();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
-        }
-
-        // v0.70: Create bounty (overseer only)
-        // v0.70: Create bounty (overseer only)
-        function createBounty() {
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (!isDev) { showNotification('OVERSEER ACCESS REQUIRED'); return; }
-            
-            // v0.72: Open the bounty form modal instead of step-by-step prompts
-            document.getElementById('bounty-reason').value = '';
-            document.getElementById('bounty-reward').value = '';
-            document.getElementById('bounty-expires').value = '';
-            window.selectedBountyTarget = null;
-            populateBountyTargetList();
-            document.getElementById('compose-bounty-modal').style.display = 'flex';
-        }
-
-        // v0.72: Populate bounty target list
-        function populateBountyTargetList() {
-            const listEl = document.getElementById('bounty-target-list');
-            if (!listEl) return;
-            
-            // Show list of known wastelanders (beacons + rolodex)
-            const wastelanders = [];
-            const seenUids = new Set();
-            
-            // Add all beacons (live and cold)
-            Object.entries(lastKnownBeaconData || {}).forEach(([uid, b]) => {
-                if (!seenUids.has(uid)) {
-                    wastelanders.push({ uid, name: b.name || 'UNKNOWN' });
-                    seenUids.add(uid);
-                }
-            });
-            
-            // Add rolodex contacts (if not already in beacons)
-            rolodex.forEach(c => {
-                if (!seenUids.has(c.uid)) {
-                    wastelanders.push({ uid: c.uid, name: c.name || 'UNKNOWN' });
-                    seenUids.add(c.uid);
-                }
-            });
-            
-            if (wastelanders.length === 0) {
-                listEl.innerHTML = '<p style="opacity:0.5;">NO WASTELANDERS FOUND - SCAN DATACARDS FIRST</p>';
-                return;
-            }
-            
-            // Sort by name
-            wastelanders.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            
-            listEl.innerHTML = wastelanders.map(w => 
-                `<div style="padding: 6px; cursor: pointer; border-bottom: 1px dashed var(--pip-color-dim);" onclick="selectBountyTarget('${w.uid}', '${escapeHtml(w.name)}')">${escapeHtml(w.name)}</div>`
-            ).join('');
-        }
-
-        // v0.72: Select bounty target
-        function selectBountyTarget(uid, name) {
-            window.selectedBountyTarget = { uid, name };
-            const display = document.getElementById('bounty-target-display');
-            if (display) display.innerText = 'Target: ' + name;
-        }
-
-        // v0.72: Submit bounty form
-        function submitBountyForm() {
-            if (!window.selectedBountyTarget) { showNotification('TARGET REQUIRED'); return; }
-            
-            const reason = document.getElementById('bounty-reason').value.trim();
-            const reward = document.getElementById('bounty-reward').value.trim();
-            const expiresHours = document.getElementById('bounty-expires').value.trim();
-            
-            const bountyId = 'bty_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            const bounty = {
-                targetUid: window.selectedBountyTarget.uid,
-                targetName: window.selectedBountyTarget.name,
-                issuerUid: localStorage.getItem('pipboy-uid') || 'unknown',
-                issuerName: userProfile.name || 'UNKNOWN',
-                reason: reason || '',
-                reward: reward || '',
-                expiresAt: null,
-                status: 'open',
-                claimedBy: null,
-                createdAt: Date.now()
-            };
-            
-            if (expiresHours && !isNaN(parseFloat(expiresHours))) {
-                bounty.expiresAt = Date.now() + (parseFloat(expiresHours) * 3600000);
-            }
-            
-            window.firebaseSet(window.firebaseRef(window.db, 'bounties/' + bountyId), bounty)
-                .then(() => {
-                    showNotification('BOUNTY POSTED');
-                    closeModals();
-                    renderBounties();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
-        }
-
-        // v0.70: Open global contract modal
-        function openGlobalContractModal(id, c) {
             const myUid = localStorage.getItem('pipboy-uid');
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            const canComplete = c.status === 'open' && (!c.expiresAt || c.expiresAt > Date.now());
-            const alreadyCompleted = c.type === 'many' && c.completedBy && c.completedBy.includes(myUid);
-            
+            const myName = userProfile.name || 'UNKNOWN';
+            const questData = {
+                type: type,
+                title: title,
+                description: desc,
+                reward: reward || null,
+                issuerUid: myUid,
+                issuerName: myName,
+                status: 'open',
+                createdAt: Date.now()
+            };
+            if (type === 'direct') {
+                const recipientUid = document.getElementById('new-quest-recipient').value;
+                if (!recipientUid) { showNotification('RECIPIENT REQUIRED'); return; }
+                questData.assignedTo = recipientUid;
+            } else if (type === 'bounty') {
+                const targetSelect = document.getElementById('new-quest-target');
+                const targetUid = targetSelect.value;
+                if (!targetUid) { showNotification('TARGET REQUIRED'); return; }
+                questData.targetUid = targetUid;
+                questData.targetName = targetSelect.options[targetSelect.selectedIndex].dataset.name;
+            }
+            const questRef = window.firebaseRef(window.db, 'quests/');
+            window.firebasePush(questRef, questData)
+                .then(ref => {
+                    const questId = ref.key;
+                    closeCustomPrompt();
+                    showNotification('QUEST CREATED');
+                    if (type === 'direct') {
+                        // Send quest-offer mail to recipient
+                        queueMail(recipientUid, 'quest-offer', {
+                            questId: questId,
+                            title: title,
+                            description: desc,
+                            reward: reward
+                        }, 'QUEST OFFER: ' + title);
+                    }
+                    switchQuestTab('issued');
+                })
+                .catch(err => showNotification('ERROR: ' + err.message));
+        }
+
+        function openQuestModal(id) {
+            const q = firebaseQuests[id];
+            if (!q) return;
+            const myUid = localStorage.getItem('pipboy-uid');
+            const prog = q.progress && q.progress[myUid];
+            const isAccepted = prog && prog.status !== 'rejected';
+            const isCompleted = prog && prog.status === 'completed';
+            const isVerified = prog && prog.status === 'verified';
             const buttons = [];
-            if (canComplete && !alreadyCompleted) {
-                buttons.push({ label: 'ATTACH PHOTO EVIDENCE', action: () => attachPhotoToContract(id, c) });
-                buttons.push({ label: 'COMPLETE CONTRACT', action: () => completeGlobalContract(id, c) });
-            }
-            // v0.86: show photo evidence if attached (viewable by all)
-            if (c.evidencePhoto) {
-                buttons.push({ label: '📷 VIEW EVIDENCE PHOTO', action: () => viewEvidencePhoto(c.evidencePhoto) });
-            }
-            if (isDev && c.status === 'open') {
-                buttons.push({ label: 'VERIFY (OVERSEER)', action: () => verifyGlobalContract(id, c) });
-                buttons.push({ label: 'CANCEL CONTRACT', color: '#ff3333', action: () => cancelGlobalContract(id) });
+            if (!isAccepted && q.type !== 'direct') {
+                buttons.push({ label: 'ACCEPT QUEST', action: () => acceptQuest(id) });
+            } else if (isAccepted && !isCompleted) {
+                buttons.push({ label: 'ATTACH PHOTO EVIDENCE', action: () => attachPhotoToQuest(id) });
+                if (q.type === 'bounty') {
+                    buttons.push({ label: 'SCAN TARGET DATACARD', action: () => scanBountyTarget(id) });
+                } else {
+                    buttons.push({ label: 'COMPLETE QUEST', action: () => completeQuest(id) });
+                }
             }
             buttons.push({ label: 'CLOSE', action: () => {} });
-            
-            const typeLabel = c.type === 'first' ? 'FIRST TO COMPLETE' : (c.type === 'many' ? 'MANY CAN COMPLETE' : 'TIMED');
-            const statusInfo = alreadyCompleted ? 'YOU COMPLETED THIS' : (c.status === 'open' ? 'OPEN' : c.status.toUpperCase());
-            const photoNote = c.evidencePhoto ? '\n📷 PHOTO EVIDENCE ATTACHED' : '';
-            
-            showCustomPrompt(`${escapeHtml(c.title)}\n\n${escapeHtml(c.description || '')}\n\nTYPE: ${typeLabel}\nSTATUS: ${statusInfo}${c.reward ? '\nREWARD: ' + escapeHtml(c.reward) : ''}${photoNote}`, buttons);
-            
-            // v0.86: show evidence photo thumbnail in the modal
-            if (c.evidencePhoto) {
-                const cpImg = document.getElementById('cp-img');
-                if (cpImg) {
-                    cpImg.src = typeof c.evidencePhoto === 'object' ? entryPip(c.evidencePhoto) : c.evidencePhoto;
-                    cpImg.style.display = 'block';
-                }
+            const typeLabel = q.type === 'global' ? '🌍 GLOBAL' : q.type === 'bounty' ? '☠ BOUNTY' : '📋 DIRECT';
+            const statusText = isVerified ? '✓ VERIFIED' : isCompleted ? '⏳ AWAITING VERIFICATION' : isAccepted ? 'ACTIVE' : 'NOT ACCEPTED';
+            const targetLine = q.type === 'bounty' ? `\nTARGET: ${escapeHtml(q.targetName || 'UNKNOWN')}` : '';
+            const desc = q.description ? `\n\n${escapeHtml(q.description)}` : '';
+            const rewardLine = q.reward ? `\n\nREWARD: ${escapeHtml(q.reward)}` : '';
+            showCustomPrompt(`${typeLabel}\n${escapeHtml(q.title)}${desc}${targetLine}${rewardLine}\n\nSTATUS: ${statusText}\nISSUED BY: ${escapeHtml(q.issuerName || 'UNKNOWN')}`, buttons);
+        }
+
+        function openIssuedQuestModal(id) {
+            const q = firebaseQuests[id];
+            if (!q) return;
+            const myUid = localStorage.getItem('pipboy-uid');
+            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
+            const buttons = [];
+            if (q.issuerUid === myUid && q.status === 'open') {
+                buttons.push({ label: 'CANCEL QUEST', color: '#ff3333', action: () => cancelQuest(id) });
+            }
+            buttons.push({ label: 'CLOSE', action: () => {} });
+            const pendingVerifications = [];
+            if (q.progress) {
+                Object.keys(q.progress).forEach(uid => {
+                    if (q.progress[uid].status === 'completed') {
+                        pendingVerifications.push({ uid, ...q.progress[uid] });
+                    }
+                });
+            }
+            let html = `<div style="font-weight:bold; font-size:1.1rem;">${escapeHtml(q.title)}</div>`;
+            html += `<div style="opacity:0.7; margin:5px 0;">${q.type.toUpperCase()} — ${q.status === 'open' ? 'OPEN' : q.status.toUpperCase()}</div>`;
+            if (q.description) html += `<div style="margin:10px 0;">${escapeHtml(q.description)}</div>`;
+            if (q.reward) html += `<div style="color:#5fc98e;">REWARD: ${escapeHtml(q.reward)}</div>`;
+            if (pendingVerifications.length > 0) {
+                html += `<h4 style="margin-top:15px; border-top:1px dashed var(--pip-color-dim); padding-top:10px;">PENDING VERIFICATIONS</h4>`;
+                pendingVerifications.forEach(p => {
+                    html += `<div style="margin:10px 0; padding:8px; border:1px solid var(--pip-color-dim);">`;
+                    html += `<div>COMPLETED BY: ${escapeHtml(p.completedByName || 'UNKNOWN')}</div>`;
+                    if (p.evidencePhoto) html += `<div style="color:#ffb642;">📷 EVIDENCE ATTACHED</div>`;
+                    html += `<div style="display:flex; gap:5px; margin-top:8px;">`;
+                    html += `<button class="pip-btn" style="flex:1; border-color:#39ff14; color:#39ff14;" onclick="verifyQuest('${id}', '${p.uid}')">VERIFY</button>`;
+                    html += `<button class="pip-btn" style="flex:1; border-color:#ff3333; color:#ff3333;" onclick="rejectQuest('${id}', '${p.uid}')">REJECT</button>`;
+                    html += `</div></div>`;
+                });
+            }
+            showCustomPrompt(html, buttons);
+        }
+
+        function acceptQuest(id) {
+            const myUid = localStorage.getItem('pipboy-uid');
+            const myName = userProfile.name || 'UNKNOWN';
+            const progRef = window.firebaseRef(window.db, `quests/${id}/progress/${myUid}`);
+            window.firebaseSet(progRef, {
+                acceptedAt: Date.now(),
+                status: 'accepted',
+                completedByName: myName
+            })
+                .then(() => {
+                    closeCustomPrompt();
+                    showNotification('QUEST ACCEPTED');
+                    switchQuestTab('active');
+                })
+                .catch(err => showNotification('ERROR: ' + err.message));
+        }
+
+        function completeQuest(id) {
+            const myUid = localStorage.getItem('pipboy-uid');
+            const myName = userProfile.name || 'UNKNOWN';
+            const q = firebaseQuests[id];
+            const updates = {
+                status: 'completed',
+                completedAt: Date.now(),
+                completedByName: myName
+            };
+            if (window.pendingQuestPhoto && window.pendingQuestPhoto.questId === id) {
+                updates.evidencePhoto = window.pendingQuestPhoto.photo;
+                window.pendingQuestPhoto = null;
+            }
+            const progRef = window.firebaseRef(window.db, `quests/${id}/progress/${myUid}`);
+            window.firebaseUpdate(progRef, updates)
+                .then(() => {
+                    closeCustomPrompt();
+                    showNotification('QUEST COMPLETED - AWAITING VERIFICATION');
+                    // Send verify-request mail to issuer
+                    queueMail(q.issuerUid, 'verify-request', {
+                        questId: id,
+                        title: q.title,
+                        completedByName: myName,
+                        evidencePhoto: updates.evidencePhoto
+                    }, 'VERIFY: ' + q.title + ' COMPLETED BY ' + myName);
+                    switchQuestTab('active');
+                })
+                .catch(err => showNotification('ERROR: ' + err.message));
+        }
+
+        function verifyQuest(id, uid) {
+            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
+            const myUid = localStorage.getItem('pipboy-uid');
+            const q = firebaseQuests[id];
+            if (q.issuerUid !== myUid && !isDev) {
+                showNotification('ONLY ISSUER OR OVERSEER CAN VERIFY');
+                return;
+            }
+            showCustomPrompt('VERIFY THIS COMPLETION?', [
+                { label: 'VERIFY', color: '#39ff14', action: () => {
+                    const progRef = window.firebaseRef(window.db, `quests/${id}/progress/${uid}`);
+                    window.firebaseUpdate(progRef, {
+                        status: 'verified',
+                        verifiedBy: myUid,
+                        verifiedByName: userProfile.name || 'UNKNOWN',
+                        verifiedAt: Date.now()
+                    })
+                        .then(() => {
+                            closeCustomPrompt();
+                            showNotification('COMPLETION VERIFIED');
+                            renderIssuedQuests();
+                        })
+                        .catch(err => showNotification('ERROR: ' + err.message));
+                }},
+                { label: 'VIEW EVIDENCE FIRST', action: () => {
+                    const prog = q.progress && q.progress[uid];
+                    if (prog && prog.evidencePhoto) {
+                        viewEvidencePhoto(prog.evidencePhoto);
+                    } else {
+                        showNotification('NO EVIDENCE PHOTO ATTACHED');
+                    }
+                }},
+                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
+            ]);
+        }
+
+        function rejectQuest(id, uid) {
+            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
+            const myUid = localStorage.getItem('pipboy-uid');
+            const q = firebaseQuests[id];
+            if (q.issuerUid !== myUid && !isDev) {
+                showNotification('ONLY ISSUER OR OVERSEER CAN REJECT');
+                return;
+            }
+            showCustomPrompt('REJECT THIS COMPLETION?', [
+                { label: 'REJECT', color: '#ff3333', action: () => {
+                    const progRef = window.firebaseRef(window.db, `quests/${id}/progress/${uid}`);
+                    window.firebaseUpdate(progRef, {
+                        status: 'rejected',
+                        rejectedBy: myUid,
+                        rejectedAt: Date.now()
+                    })
+                        .then(() => {
+                            closeCustomPrompt();
+                            showNotification('COMPLETION REJECTED');
+                            renderIssuedQuests();
+                        })
+                        .catch(err => showNotification('ERROR: ' + err.message));
+                }},
+                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
+            ]);
+        }
+
+        function cancelQuest(id) {
+            showCustomPrompt('CANCEL THIS QUEST?', [
+                { label: 'CANCEL QUEST', color: '#ff3333', action: () => {
+                    const questRef = window.firebaseRef(window.db, `quests/${id}`);
+                    window.firebaseUpdate(questRef, { status: 'cancelled' })
+                        .then(() => {
+                            closeCustomPrompt();
+                            showNotification('QUEST CANCELLED');
+                            renderIssuedQuests();
+                        })
+                        .catch(err => showNotification('ERROR: ' + err.message));
+                }},
+                { label: 'BACK', color: 'var(--pip-color-dim)', action: () => {} }
+            ]);
+        }
+
+        function attachPhotoToQuest(id) {
+            if (!photoArchive.length) { showNotification('DATABANK EMPTY -- TAKE A PHOTO FIRST.'); return; }
+            photoPickMode = 'quest-evidence';
+            window.pendingQuestPhoto = { questId: id };
+            document.getElementById('pp-title').innerText = 'SELECT PHOTO EVIDENCE';
+            let html = '<div class="photo-tile-grid">';
+            photoArchive.forEach((e, i) => { html += `<div class="photo-tile" onclick="pickPhotoForQuestEvidence(${i})"><img src="${entryPip(e)}"></div>`; });
+            document.getElementById('pp-grid').innerHTML = html + '</div>';
+            document.getElementById('photo-pick-modal').style.display = 'flex';
+        }
+
+        function pickPhotoForQuestEvidence(idx) {
+            const entry = photoArchive[idx];
+            if (!entry) return;
+            document.getElementById('photo-pick-modal').style.display = 'none';
+            if (window.pendingQuestPhoto) {
+                window.pendingQuestPhoto.photo = entryPip(entry);
+                showNotification('PHOTO ATTACHED - NOW COMPLETE QUEST');
+                openQuestModal(window.pendingQuestPhoto.questId);
             }
         }
 
-        // v0.86: View evidence photo full-size
+        function scanBountyTarget(id) {
+            showCustomPrompt('SCAN TARGET\'S DATACARD QR TO PROVE COMPLETION', [
+                { label: 'START SCANNING', action: () => {
+                    closeCustomPrompt();
+                    window.pendingBountyScan = id;
+                    document.getElementById('qr-scan-modal').style.display = 'flex';
+                    startQRScanner();
+                }},
+                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
+            ]);
+        }
+
+        // v0.91: View evidence photo full-size
         function viewEvidencePhoto(photo) {
             const src = typeof photo === 'object' ? entryPip(photo) : photo;
             showCustomPrompt('EVIDENCE PHOTO', [
@@ -2197,232 +2218,32 @@
             if (cpImg) { cpImg.src = src; cpImg.style.display = 'block'; }
         }
 
-        // v0.70: Complete global contract
-        // v0.84: Attach photo evidence to global contract
-        function attachPhotoToContract(id, c) {
-            if (!photoArchive.length) { showNotification('DATABANK EMPTY -- TAKE A PHOTO FIRST.'); return; }
-            photoPickMode = 'contract-evidence';
-            window.pendingContractPhoto = { contractId: id, contract: c };
-            document.getElementById('pp-title').innerText = 'SELECT PHOTO EVIDENCE';
-            let html = '<div class="photo-tile-grid">';
-            photoArchive.forEach((e, i) => { html += `<div class="photo-tile" onclick="pickPhotoForContractEvidence(${i})"><img src="${entryPip(e)}"></div>`; });
-            document.getElementById('pp-grid').innerHTML = html + '</div>';
-            document.getElementById('photo-pick-modal').style.display = 'flex';
-        }
-
-        // v0.84: Pick photo for contract evidence
-        function pickPhotoForContractEvidence(idx) {
-            const entry = photoArchive[idx];
-            if (!entry) return;
-            document.getElementById('photo-pick-modal').style.display = 'none';
-            if (window.pendingContractPhoto) {
-                window.pendingContractPhoto.photo = entry;
-                showNotification('PHOTO ATTACHED - NOW COMPLETE CONTRACT');
-                // v0.87: pass the pending photo (pip version) so the modal can display it
-                const contractWithPhoto = Object.assign({}, window.pendingContractPhoto.contract, { evidencePhoto: entryPip(entry) });
-                openGlobalContractModal(window.pendingContractPhoto.contractId, contractWithPhoto);
+        function handleBountyScan(scannedUid) {
+            if (!window.pendingBountyScan) return false;
+            const questId = window.pendingBountyScan;
+            window.pendingBountyScan = null;
+            const q = firebaseQuests[questId];
+            if (!q || q.type !== 'bounty') return false;
+            if (scannedUid !== q.targetUid) {
+                showNotification('WRONG TARGET - SCAN THE BOUNTY TARGET\'S DATACARD');
+                return true;
             }
+            completeQuest(questId);
+            return true;
         }
 
-        function completeGlobalContract(id, c) {
-            const myUid = localStorage.getItem('pipboy-uid');
-            const myName = userProfile.name || 'UNKNOWN';
-            
-            const updates = {};
-            if (c.type === 'first') {
-                updates.status = 'completed';
-                updates.completedBy = myUid;
-                updates.completedByName = myName;
-                // v0.88: DO NOT set verifiedBy=null — Firebase rules require string, null fails validation
-                // verifiedBy simply won't exist until overseer verifies (rendering checks for falsy)
-                // v0.84: attach photo evidence if available
-                // v0.87: store only the pip version (smaller) to avoid Firebase size issues
-                if (window.pendingContractPhoto && window.pendingContractPhoto.contractId === id && window.pendingContractPhoto.photo) {
-                    updates.evidencePhoto = entryPip(window.pendingContractPhoto.photo);
-                    window.pendingContractPhoto = null; // clear pending photo
+        function startQuestsListener() {
+            if (!window.db) return;
+            window.firebaseOnValue(window.firebaseRef(window.db, 'quests/'), (snap) => {
+                firebaseQuests = snap.val() || {};
+                const activeTab = document.querySelector('#quest-sub-nav .sub-nav-item.active');
+                if (activeTab) {
+                    const tabText = activeTab.textContent.trim();
+                    if (tabText === 'ACTIVE') renderActiveQuests();
+                    else if (tabText === 'AVAILABLE') renderAvailableQuests();
+                    else if (tabText === 'ISSUED') renderIssuedQuests();
                 }
-            } else if (c.type === 'many') {
-                const completedBy = c.completedBy || [];
-                if (!completedBy.includes(myUid)) {
-                    completedBy.push(myUid);
-                    updates.completedBy = completedBy;
-                    // v0.84: attach photo evidence if available
-                    // v0.87: store only the pip version (smaller) to avoid Firebase size issues
-                    if (window.pendingContractPhoto && window.pendingContractPhoto.contractId === id && window.pendingContractPhoto.photo) {
-                        updates.evidencePhoto = entryPip(window.pendingContractPhoto.photo);
-                        window.pendingContractPhoto = null; // clear pending photo
-                    }
-                }
-            }
-            
-            window.firebaseUpdate(window.firebaseRef(window.db, 'globalContracts/' + id), updates)
-                .then(() => {
-                    showNotification('CONTRACT COMPLETED - AWAITING VERIFICATION');
-                    renderGlobalContracts();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
-        }
-
-        // v0.70: Verify global contract (overseer)
-        function verifyGlobalContract(id, c) {
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (!isDev) { showNotification('OVERSEER ACCESS REQUIRED'); return; }
-            
-            window.firebaseUpdate(window.firebaseRef(window.db, 'globalContracts/' + id), { verifiedBy: userProfile.name || 'OVERSEER' })
-                .then(() => {
-                    showNotification('CONTRACT VERIFIED');
-                    renderGlobalContracts();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
-        }
-
-        // v0.70: Cancel global contract (overseer)
-        function cancelGlobalContract(id) {
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (!isDev) { showNotification('OVERSEER ACCESS REQUIRED'); return; }
-            
-            window.firebaseRemove(window.firebaseRef(window.db, 'globalContracts/' + id))
-                .then(() => {
-                    showNotification('CONTRACT CANCELLED');
-                    renderGlobalContracts();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
-        }
-
-        // v0.70: Open bounty modal
-        function openBountyModal(id, b) {
-            const myUid = localStorage.getItem('pipboy-uid');
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            const canClaim = b.status === 'open' && b.targetUid !== myUid && (!b.expiresAt || b.expiresAt > Date.now());
-            const isTarget = b.targetUid === myUid;
-            
-            const buttons = [];
-            if (canClaim) {
-                buttons.push({ label: 'CLAIM BOUNTY', action: () => claimBounty(id, b) });
-            }
-            if (isTarget && b.status === 'open') {
-                buttons.push({ label: 'GENERATE SURRENDER CODE', action: () => generateSurrenderCode() });
-            }
-            if (isDev && b.status === 'open') {
-                buttons.push({ label: 'VERIFY (OVERSEER)', action: () => verifyBounty(id, b) });
-                buttons.push({ label: 'CANCEL BOUNTY', color: '#ff3333', action: () => cancelBounty(id) });
-            }
-            buttons.push({ label: 'CLOSE', action: () => {} });
-            
-            const statusInfo = b.status === 'open' ? 'OPEN' : b.status.toUpperCase();
-            
-            showCustomPrompt(`☠ BOUNTY: ${escapeHtml(b.targetName)}\n\n${escapeHtml(b.reason || '')}\n\nSTATUS: ${statusInfo}${b.reward ? '\nREWARD: ' + escapeHtml(b.reward) : ''}`, buttons);
-        }
-
-        // v0.70: Claim bounty (scan target's datacard)
-        function claimBounty(id, b) {
-            // v0.84: Ask for surrender code instead of scanning
-            showCustomPrompt('ENTER TARGET\'S SURRENDER CODE (6 digits)', [
-                { label: 'ENTER CODE', action: () => {
-                    const code = prompt('Enter 6-digit surrender code:');
-                    if (code && code.length === 6 && /^\d{6}$/.test(code)) {
-                        validateSurrenderCode(id, b, code);
-                    } else {
-                        showNotification('INVALID CODE - MUST BE 6 DIGITS');
-                    }
-                }},
-                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
-            ]);
-        }
-
-        // v0.84: Validate surrender code
-        function validateSurrenderCode(id, b, code) {
-            if (!window.db) {
-                showNotification('No database connection');
-                return;
-            }
-            // Check if target has generated this code
-            const targetUid = b.targetUid;
-            const surrenderCodeRef = window.firebaseRef(window.db, 'surrenderCodes/' + targetUid);
-            window.firebaseGet(surrenderCodeRef).then(snap => {
-                const data = snap.val();
-                if (!data || data.code !== code) {
-                    showNotification('INVALID SURRENDER CODE');
-                    return;
-                }
-                // Check if code has expired (5 minutes)
-                const now = Date.now();
-                if (now - data.generatedAt > 5 * 60 * 1000) {
-                    showNotification('SURRENDER CODE EXPIRED - TARGET MUST GENERATE NEW CODE');
-                    return;
-                }
-                // Code is valid, claim the bounty
-                window.firebaseUpdate(window.firebaseRef(window.db, 'bounties/' + id), { 
-                    status: 'claimed',
-                    claimedBy: localStorage.getItem('pipboy-uid'),
-                    claimedByName: userProfile.name || 'UNKNOWN',
-                    claimedAt: now
-                })
-                    .then(() => {
-                        showNotification('BOUNTY CLAIMED - AWAITING VERIFICATION');
-                        renderBounties();
-                        // Delete the surrender code
-                        window.firebaseRemove(surrenderCodeRef).catch(() => {});
-                    })
-                    .catch(err => showNotification('ERROR: ' + err.message));
-            }).catch(err => {
-                showNotification('ERROR VALIDATING CODE: ' + String(err));
-            });
-        }
-
-        // v0.84: Generate surrender code for target (called by target)
-        function generateSurrenderCode() {
-            if (!window.db) {
-                showNotification('No database connection');
-                return;
-            }
-            const myUid = localStorage.getItem('pipboy-uid');
-            if (!myUid) {
-                showNotification('No user ID found');
-                return;
-            }
-            // Generate random 6-digit code
-            const code = String(Math.floor(100000 + Math.random() * 900000));
-            const surrenderCodeRef = window.firebaseRef(window.db, 'surrenderCodes/' + myUid);
-            window.firebaseSet(surrenderCodeRef, {
-                code: code,
-                generatedAt: Date.now()
-            })
-                .then(() => {
-                    showCustomPrompt('YOUR SURRENDER CODE (VALID FOR 5 MINUTES)', [
-                        { label: code, action: () => {} }
-                    ]);
-                })
-                .catch(err => showNotification('ERROR GENERATING CODE: ' + String(err)));
-        }
-
-        // v0.70: Verify bounty (overseer)
-        function verifyBounty(id, b) {
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (!isDev) { showNotification('OVERSEER ACCESS REQUIRED'); return; }
-            
-            window.firebaseUpdate(window.firebaseRef(window.db, 'bounties/' + id), { 
-                status: 'claimed',
-                verifiedBy: userProfile.name || 'OVERSEER'
-            })
-                .then(() => {
-                    showNotification('BOUNTY VERIFIED');
-                    renderBounties();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
-        }
-
-        // v0.70: Cancel bounty (overseer)
-        function cancelBounty(id) {
-            const isDev = localStorage.getItem('pipboy-dev-mode') === 'true';
-            if (!isDev) { showNotification('OVERSEER ACCESS REQUIRED'); return; }
-            
-            window.firebaseRemove(window.firebaseRef(window.db, 'bounties/' + id))
-                .then(() => {
-                    showNotification('BOUNTY CANCELLED');
-                    renderBounties();
-                })
-                .catch(err => showNotification('ERROR: ' + err.message));
+            }, () => {});
         }
 
         function getFactionRelation(rep) {
@@ -3958,9 +3779,8 @@
                 return;
             }
             pariahEl.style.display = 'block';
-            pariahEl.innerHTML = renderPariahPanel() + renderOverseerUserManagement() + renderOverseerGlowingOnes() + renderOverseerContractsToVerify();
+            pariahEl.innerHTML = renderPariahPanel() + renderOverseerUserManagement() + renderOverseerGlowingOnes();
             // v0.86: auto-load contracts to verify after rendering
-            setTimeout(() => loadOverseerContractsToVerify(), 100);
         }
 
         // v0.63: overseer user management — view ALL users who have EVER broadcast, remove dead ones
@@ -4156,103 +3976,6 @@
         }
 
         // v0.84: render contracts to verify section for overseer
-        function renderOverseerContractsToVerify() {
-            let html = '<h3 style="color:#ffb642; text-shadow:0 0 6px #ffb642; margin-top:20px;">CONTRACTS TO VERIFY</h3>';
-            html += '<p style="font-size:0.9rem; opacity:0.75; margin-bottom:10px;">COMPLETED CONTRACTS AWAITING OVERSEER VERIFICATION</p>';
-            html += '<div id="overseer-contracts-list" style="max-height:300px; overflow-y:auto; border:1px dashed var(--pip-color-dim); padding:10px;">';
-            html += '<p style="opacity:0.5;">Loading...</p>';
-            html += '</div>';
-            html += '<button class="pip-btn" onclick="loadOverseerContractsToVerify()" style="margin-top:10px; border-style:dashed;">[REFRESH CONTRACTS]</button>';
-            return html;
-        }
-
-        // v0.84: load contracts to verify from Firebase
-        function loadOverseerContractsToVerify() {
-            const el = document.getElementById('overseer-contracts-list');
-            if (!el || !window.db) {
-                if (el) el.innerHTML = '<p style="opacity:0.5;">No database connection</p>';
-                return;
-            }
-            el.innerHTML = '<p style="opacity:0.5;">Loading...</p>';
-            const contractsRef = window.firebaseRef(window.db, 'globalContracts/');
-            window.firebaseGet(contractsRef).then(snap => {
-                const data = snap.val() || {};
-                const toVerify = Object.keys(data).filter(id => {
-                    const c = data[id];
-                    // v0.86: catch both 'first' type (status=completed) and 'many' type (has completedBy entries)
-                    if (c.verifiedBy) return false; // already verified or rejected
-                    if (c.status === 'completed') return true; // first-type completed
-                    if (c.type === 'many' && c.completedBy && c.completedBy.length > 0) return true; // many-type has completions
-                    return false;
-                }).map(id => ({ id, ...data[id] }));
-                
-                if (!toVerify.length) {
-                    el.innerHTML = '<p style="opacity:0.5;">No contracts awaiting verification</p>';
-                    return;
-                }
-                
-                let html = '<p style="margin-bottom:10px;">' + toVerify.length + ' contract' + (toVerify.length > 1 ? 's' : '') + ' awaiting verification</p>';
-                toVerify.forEach(c => {
-                    html += '<div style="padding:6px 0; border-bottom:1px dashed var(--pip-color-dim);">';
-                    html += '<div style="font-weight:bold;">' + escapeHtml(c.title) + '</div>';
-                    html += '<div style="font-size:0.8rem; opacity:0.7;">Completed by: ' + escapeHtml(c.completedByName || 'UNKNOWN') + '</div>';
-                    if (c.evidencePhoto) {
-                        html += '<div style="font-size:0.8rem; opacity:0.7;">📷 Photo evidence attached</div>';
-                    }
-                    html += '<div style="display:flex; gap:5px; margin-top:5px;">';
-                    html += '<button class="pip-btn" onclick="verifyOverseerContract(\'' + c.id + '\')" style="flex:1; border-color:#39ff14; color:#39ff14; font-size:0.85rem;">[VERIFY]</button>';
-                    html += '<button class="pip-btn" onclick="rejectOverseerContract(\'' + c.id + '\')" style="flex:1; border-color:#ff3333; color:#ff3333; font-size:0.85rem;">[REJECT]</button>';
-                    html += '</div>';
-                    html += '</div>';
-                });
-                el.innerHTML = html;
-            }).catch(err => {
-                el.innerHTML = '<p style="color:#ff3333;">Error loading: ' + escapeHtml(String(err)) + '</p>';
-            });
-        }
-
-        // v0.84: verify a contract (overseer only)
-        function verifyOverseerContract(id) {
-            if (!window.db) {
-                showNotification('No database connection');
-                return;
-            }
-            showCustomPrompt('VERIFY THIS CONTRACT? THE COMPLETION WILL BE MARKED AS VERIFIED.', [
-                { label: 'VERIFY', color: '#39ff14', action: () => {
-                    const contractRef = window.firebaseRef(window.db, 'globalContracts/' + id);
-                    window.firebaseUpdate(contractRef, { verifiedBy: userProfile.name || 'OVERSEER' })
-                        .then(() => {
-                            showNotification('CONTRACT VERIFIED');
-                            loadOverseerContractsToVerify(); // refresh the list
-                        }).catch(err => {
-                            showNotification('Error verifying: ' + String(err));
-                        });
-                }},
-                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
-            ]);
-        }
-
-        // v0.84: reject a contract (overseer only)
-        function rejectOverseerContract(id) {
-            if (!window.db) {
-                showNotification('No database connection');
-                return;
-            }
-            showCustomPrompt('REJECT THIS CONTRACT? THE COMPLETION WILL BE MARKED AS REJECTED.', [
-                { label: 'REJECT', color: '#ff3333', action: () => {
-                    const contractRef = window.firebaseRef(window.db, 'globalContracts/' + id);
-                    window.firebaseUpdate(contractRef, { verifiedBy: 'REJECTED', status: 'rejected' })
-                        .then(() => {
-                            showNotification('CONTRACT REJECTED');
-                            loadOverseerContractsToVerify(); // refresh the list
-                        }).catch(err => {
-                            showNotification('Error rejecting: ' + String(err));
-                        });
-                }},
-                { label: 'CANCEL', color: 'var(--pip-color-dim)', action: () => {} }
-            ]);
-        }
-
         // ================= SHARED VITALS BAR (v0.52) =================
         // The "overtaking" bar: green = HP remaining, red = the rads-eaten slice growing
         // in from the right (1000 rads eats the whole bar). Beacon telemetry for linked
@@ -4992,29 +4715,8 @@
             if (!uid) { showNotification('DATACARD CORRUPTED. RESCAN.'); return; }
             if (uid === myMailUid) { showNotification('THAT IS YOUR OWN DATACARD, WASTELANDER.'); return; }
             
-            // v0.70: Check for pending bounty claim
-            if (window.pendingBountyClaim && window.pendingBountyClaim.bounty.targetUid === uid) {
-                const bountyId = window.pendingBountyClaim.id;
-                const myUid = localStorage.getItem('pipboy-uid');
-                const myName = userProfile.name || 'UNKNOWN';
-                
-                window.firebaseUpdate(window.firebaseRef(window.db, 'bounties/' + bountyId), {
-                    status: 'claimed',
-                    claimedBy: myUid,
-                    claimedByName: myName,
-                    claimedAt: Date.now()
-                })
-                    .then(() => {
-                        showNotification('BOUNTY CLAIMED - AWAITING VERIFICATION');
-                        window.pendingBountyClaim = null;
-                        renderBounties();
-                    })
-                    .catch(err => {
-                        showNotification('ERROR CLAIMING BOUNTY: ' + err.message);
-                        window.pendingBountyClaim = null;
-                    });
-                return;
-            }
+            // v0.91: Check for pending bounty scan (unified quest system)
+            if (handleBountyScan(uid)) return;
             
             if (isContact(uid)) { showNotification(contactByUid(uid).name + ' ALREADY LOGGED IN WASTELANDERS MET.'); return; }
             showCustomPrompt('ADD ' + name + ' TO WASTELANDERS MET? THEY WILL BE NOTIFIED OF THE LINK.', [
@@ -5225,8 +4927,9 @@
         let deconActive = false;   // currently inside a decon zone
         let deconFired = false;    // effect already fired this visit (once per entry)
         // v0.70: global contracts and bounties state
-        let globalContracts = {}; // contractId -> contract data
-        let bounties = {};        // bountyId -> bounty data
+        // v0.70: global contracts and bounties state (REPLACED by unified quest system v0.91)
+        // let globalContracts = {}; // REMOVED
+        // let bounties = {};        // REMOVED
 
         function adjustRads(delta) {
             const before = userProfile.rads || 0;
@@ -5443,24 +5146,7 @@
         }
 
         // v0.70: Global contracts listener
-        function startGlobalContractsListener() {
-            window.firebaseOnValue(window.firebaseRef(window.db, 'globalContracts/'), (snap) => {
-                globalContracts = snap.val() || {};
-                if (document.getElementById('quest-tab-global') && document.getElementById('quest-tab-global').classList.contains('active')) {
-                    renderGlobalContracts();
-                }
-            }, () => {}); // offline: last known contracts stand
-        }
-
-        // v0.70: Bounties listener
-        function startBountiesListener() {
-            window.firebaseOnValue(window.firebaseRef(window.db, 'bounties/'), (snap) => {
-                bounties = snap.val() || {};
-                if (document.getElementById('quest-tab-bounties') && document.getElementById('quest-tab-bounties').classList.contains('active')) {
-                    renderBounties();
-                }
-            }, () => {}); // offline: last known bounties stand
-        }
+        // v0.91: Old listeners removed (globalContracts + bounties replaced by unified quests/)
 
         // --- OVERSEER PARIAH CONTROL (STATS tab, dev-mode only) ---
         function renderPariahPanel() {
@@ -5778,6 +5464,8 @@
 
         function typeSummary(l) {
             if (l.type === 'quest') return 'QUEST: ' + (l.payload && l.payload.title ? l.payload.title : '');
+            if (l.type === 'quest-offer') return '📋 QUEST OFFER: ' + (l.payload && l.payload.title ? l.payload.title : '');
+            if (l.type === 'verify-request') return '⏳ VERIFY: ' + (l.payload && l.payload.title ? l.payload.title : '') + ' BY ' + (l.payload && l.payload.completedByName ? l.payload.completedByName : 'UNKNOWN');
             if (l.type === 'item') return 'ITEM: ' + (l.payload && l.payload.name ? l.payload.name : '') + ' x' + (l.payload && l.payload.quantity ? l.payload.quantity : 1);
             // v0.47: message letters can carry attachments — say so on the ACTION row
             if (l.type === 'msg' && l.payload && (l.payload.photo || l.payload.item)) {
@@ -5871,6 +5559,25 @@
                     { label: 'ACCEPT CONTRACT', action: () => acceptQuest(key, l) },
                     { label: 'DECLINE', color: '#ff3333', action: () => declineLetter(key) }
                 ]);
+            } else if (l.type === 'quest-offer') {
+                const p = l.payload || {};
+                showCustomPrompt('DIRECT QUEST FROM ' + from + ':\n\n"' + (p.title || '') + '"' + (p.description ? '\n\n' + p.description : '') + (p.reward ? '\n\nREWARD: ' + p.reward : ''), [
+                    { label: 'ACCEPT QUEST', action: () => { acceptQuestFromMail(key, l); } },
+                    { label: 'DECLINE', color: '#ff3333', action: () => declineLetter(key) }
+                ]);
+            } else if (l.type === 'verify-request') {
+                const p = l.payload || {};
+                const buttons = [
+                    { label: 'VIEW EVIDENCE', action: () => { if (p.evidencePhoto) viewEvidencePhoto(p.evidencePhoto); else showNotification('NO EVIDENCE PHOTO'); } },
+                    { label: 'VERIFY COMPLETION', color: '#39ff14', action: () => { verifyQuestFromMail(key, l); } },
+                    { label: 'REJECT', color: '#ff3333', action: () => { rejectQuestFromMail(key, l); } },
+                    { label: 'DECIDE LATER', action: () => {} }
+                ];
+                showCustomPrompt('QUEST COMPLETED BY ' + (p.completedByName || 'UNKNOWN') + ':\n\n"' + (p.title || '') + '"\n\nVERIFY OR REJECT?', buttons);
+                if (p.evidencePhoto) {
+                    const img = document.getElementById('cp-img');
+                    if (img) { img.src = p.evidencePhoto; img.style.display = 'block'; }
+                }
             } else if (l.type === 'item') {
                 const p = l.payload || {};
                 showCustomPrompt('ITEM FROM ' + from + ': ' + (p.name || 'UNKNOWN') + ' x' + (p.quantity || 1) + '. ADD TO INVENTORY?', [
@@ -5878,6 +5585,79 @@
                     { label: 'DECLINE', color: '#ff3333', action: () => declineLetter(key) }
                 ]);
             }
+        }
+
+        // v0.91: Accept a direct quest from mail
+        function acceptQuestFromMail(key, l) {
+            const myUid = localStorage.getItem('pipboy-uid');
+            const myName = userProfile.name || 'UNKNOWN';
+            const questId = l.payload && l.payload.questId;
+            if (!questId) { showNotification('QUEST DATA MISSING'); declineLetter(key); return; }
+            const progRef = window.firebaseRef(window.db, 'quests/' + questId + '/progress/' + myUid);
+            window.firebaseSet(progRef, {
+                acceptedAt: Date.now(),
+                status: 'accepted',
+                completedByName: myName
+            })
+                .then(() => {
+                    showNotification('QUEST ACCEPTED');
+                    markProcessed(key);
+                    retireLetter(key);
+                    if (mailTabActive()) renderMail();
+                })
+                .catch(err => showNotification('ERROR: ' + err.message));
+        }
+
+        // v0.91: Verify a quest completion from mail
+        function verifyQuestFromMail(key, l) {
+            const myUid = localStorage.getItem('pipboy-uid');
+            const questId = l.payload && l.payload.questId;
+            if (!questId) { showNotification('QUEST DATA MISSING'); declineLetter(key); return; }
+            // Find the uid of the person who completed it
+            const completedByUid = Object.keys(firebaseQuests[questId] && firebaseQuests[questId].progress || {}).find(uid => {
+                const p = firebaseQuests[questId].progress[uid];
+                return p.status === 'completed' && p.completedByName === (l.payload && l.payload.completedByName);
+            });
+            if (!completedByUid) { showNotification('COMPLETION NOT FOUND'); return; }
+            const progRef = window.firebaseRef(window.db, 'quests/' + questId + '/progress/' + completedByUid);
+            window.firebaseUpdate(progRef, {
+                status: 'verified',
+                verifiedBy: myUid,
+                verifiedByName: userProfile.name || 'UNKNOWN',
+                verifiedAt: Date.now()
+            })
+                .then(() => {
+                    showNotification('COMPLETION VERIFIED');
+                    markProcessed(key);
+                    retireLetter(key);
+                    if (mailTabActive()) renderMail();
+                })
+                .catch(err => showNotification('ERROR: ' + err.message));
+        }
+
+        // v0.91: Reject a quest completion from mail
+        function rejectQuestFromMail(key, l) {
+            const myUid = localStorage.getItem('pipboy-uid');
+            const questId = l.payload && l.payload.questId;
+            if (!questId) { showNotification('QUEST DATA MISSING'); declineLetter(key); return; }
+            const completedByUid = Object.keys(firebaseQuests[questId] && firebaseQuests[questId].progress || {}).find(uid => {
+                const p = firebaseQuests[questId].progress[uid];
+                return p.status === 'completed' && p.completedByName === (l.payload && l.payload.completedByName);
+            });
+            if (!completedByUid) { showNotification('COMPLETION NOT FOUND'); return; }
+            const progRef = window.firebaseRef(window.db, 'quests/' + questId + '/progress/' + completedByUid);
+            window.firebaseUpdate(progRef, {
+                status: 'rejected',
+                rejectedBy: myUid,
+                rejectedAt: Date.now()
+            })
+                .then(() => {
+                    showNotification('COMPLETION REJECTED');
+                    markProcessed(key);
+                    retireLetter(key);
+                    if (mailTabActive()) renderMail();
+                })
+                .catch(err => showNotification('ERROR: ' + err.message));
         }
 
         // v0.45: compact log-copy thumbs so PHOTO TRANSMISSIONS stay viewable from the
@@ -7067,8 +6847,7 @@
                 startPariahListener(); // v0.46
                 startRadZoneListener(); // v0.47
                 startStarchedListener(); // v0.58: Starched Genes global toggle
-                startGlobalContractsListener(); // v0.70: Global contracts
-                startBountiesListener(); // v0.70: Bounties
+                startQuestsListener(); // v0.91: Unified quest system (replaces globalContracts + bounties)
                 flushOutbox();
                 refreshOutboxStatuses();
                 renderMailBadge();

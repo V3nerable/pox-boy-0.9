@@ -26,7 +26,7 @@
     <!-- Firebase SDK (Live Tracking) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, set, get, remove, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, set, get, remove, onValue, onDisconnect, push, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD5Uczvj78XsIsykhlasSYaMcPBO2WNvxs",
@@ -46,6 +46,8 @@
         window.firebaseOnDisconnect = onDisconnect;
         window.firebaseGet = get;
         window.firebaseRemove = remove;
+        window.firebasePush = push;
+        window.firebaseUpdate = update;
     </script>
 </head>
 <body class="crt">
@@ -54,7 +56,7 @@
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px;">
             <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
                 <span class="header-title" id="main-os-title">POX-BOY 3026</span>
-                <span style="font-size: 0.8rem; opacity: 0.5; flex-shrink: 0;">v0.90</span>
+                <span style="font-size: 0.8rem; opacity: 0.5; flex-shrink: 0;">v0.94</span>
                 <span style="opacity: 0.5;">|</span>
                 <span id="pip-clock" style="font-size: 0.9rem; opacity: 0.8; white-space: nowrap;"></span>
             </div>
@@ -121,7 +123,7 @@
                 </div>
                 
                 <!-- v0.84: RADIATION LEVEL row removed — already shown in HP/RADS bar + footer -->
-                <!-- v0.90: ACTION POINTS row removed — never implemented, dead code -->
+                <!-- v0.94: ACTION POINTS row removed — never implemented, dead code -->
             </div>
 
             <!-- SPECIAL (v0.84: merged with SKILLS + PERKS — one scrollable page) -->
@@ -244,20 +246,21 @@
                 </div>
             </div>
 
-            <!-- QUESTS -->
+            <!-- QUESTS (v0.94: unified quest system) -->
             <div id="sub-data-quests" class="sub-tab-content active">
+                <button class="theme-btn" onclick="openCreateQuestModal()" style="width:100%; border-style:dashed; margin-bottom:15px;">[+ CREATE QUEST]</button>
                 <div class="sub-nav" id="quest-sub-nav" style="flex-wrap: wrap; column-gap: 15px; row-gap: 6px; margin-bottom: 15px;">
-                    <div class="sub-nav-item active" onclick="switchQuestTab('direct')">DIRECT</div>
-                    <div class="sub-nav-item" onclick="switchQuestTab('global')">GLOBAL</div>
-                    <div class="sub-nav-item" onclick="switchQuestTab('bounties')">BOUNTIES</div>
+                    <div class="sub-nav-item active" onclick="switchQuestTab('active')">ACTIVE</div>
+                    <div class="sub-nav-item" onclick="switchQuestTab('available')">AVAILABLE</div>
+                    <div class="sub-nav-item" onclick="switchQuestTab('issued')">ISSUED</div>
                 </div>
-                <div id="quest-tab-direct" class="quest-tab-content active">
+                <div id="quest-tab-active" class="quest-tab-content active">
                     <!-- Dynamically populated by JS -->
                 </div>
-                <div id="quest-tab-global" class="quest-tab-content" style="display:none;">
+                <div id="quest-tab-available" class="quest-tab-content" style="display:none;">
                     <!-- Dynamically populated by JS -->
                 </div>
-                <div id="quest-tab-bounties" class="quest-tab-content" style="display:none;">
+                <div id="quest-tab-issued" class="quest-tab-content" style="display:none;">
                     <!-- Dynamically populated by JS -->
                 </div>
             </div>
@@ -461,10 +464,6 @@
         </div>
 
         <div style="width: 80px; text-align: right; display: flex; flex-direction: column; justify-content: center;">
-            <span id="footer-ap-display" style="font-size: 0.9rem;">AP 100/100</span>
-            <div style="width: 100%; height: 10px; border: 1px solid var(--pip-color); background: var(--pip-bg); margin-top: 2px;">
-                <div style="height: 100%; background-color: var(--pip-color); width: 100%; box-shadow: 0 0 5px var(--pip-color);"></div>
-            </div>
         </div>
     </div>
 

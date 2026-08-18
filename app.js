@@ -1816,8 +1816,8 @@
             const myUid = localStorage.getItem('pipboy-uid');
             const html = [];
 
-            // Legacy local firebaseQuests
-            firebaseQuests.forEach(q => {
+            // Legacy local quests (from localStorage)
+            quests.forEach(q => {
                 if (q.completed || q.expired || q.abandoned) return;
                 html.push(`<div class="item-row" onclick="openQuestActionModal('${q.id}')">
                     <div style="font-weight:bold;">${escapeHtml(q.name)}</div>
